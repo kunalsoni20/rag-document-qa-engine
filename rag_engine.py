@@ -2,6 +2,8 @@ import os
 import re
 import shutil
 import hashlib
+import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +36,57 @@ class LocalHashEmbeddings(Embeddings):
 
     def embed_query(self, text: str) -> list[float]:
         return self._embed(text)
+
+
+class JsonVectorStore:
+    """Small persistent fallback for memory-constrained hosted instances."""
+
+    def __init__(self, path: Path, embeddings: LocalHashEmbeddings):
+        self.path = path
+        self.embeddings = embeddings
+        self._embedding_function = embeddings
+        self.records = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+
+    def _save(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(json.dumps(self.records), encoding="utf-8")
+
+    def count(self) -> int:
+        return len(self.records)
+
+    def add_documents(self, documents: list[Document], ids: list[str]) -> None:
+        by_id = {record["id"]: record for record in self.records}
+        vectors = self.embeddings.embed_documents([document.page_content for document in documents])
+        for document, identifier, vector in zip(documents, ids, vectors):
+            by_id[identifier] = {
+                "id": identifier,
+                "text": document.page_content,
+                "metadata": document.metadata,
+                "vector": vector,
+            }
+        self.records = list(by_id.values())
+        self._save()
+
+    def similarity_search_with_score(self, query: str, k: int, filter: dict[str, str] | None = None):
+        query_vector = self.embeddings.embed_query(query)
+        candidates = self.records
+        if filter:
+            candidates = [record for record in candidates if all(record["metadata"].get(key) == value for key, value in filter.items())]
+
+        def distance(record):
+            similarity = sum(a * b for a, b in zip(query_vector, record["vector"]))
+            return 1.0 - similarity
+
+        ranked = sorted(candidates, key=distance)[:k]
+        return [(Document(page_content=record["text"], metadata=record["metadata"]), distance(record)) for record in ranked]
+
+    def delete(self, where: dict[str, str]) -> None:
+        self.records = [record for record in self.records if any(record["metadata"].get(key) != value for key, value in where.items())]
+        self._save()
+
+    def delete_collection(self) -> None:
+        self.records = []
+        self.path.unlink(missing_ok=True)
 
 
 class RAGEngine:
@@ -77,11 +130,14 @@ class RAGEngine:
         signature = "openai" if config.get("openai_api_key") else provider
         if self._vectorstore is None or self._embedding_signature != signature:
             self.persist_directory.mkdir(parents=True, exist_ok=True)
-            self._vectorstore = Chroma(
-                collection_name=f"local_document_chunks_{signature}",
-                embedding_function=embeddings,
-                persist_directory=str(self.persist_directory),
-            )
+            if signature == "local":
+                self._vectorstore = JsonVectorStore(self.persist_directory / "vectors.json", embeddings)
+            else:
+                self._vectorstore = Chroma(
+                    collection_name=f"local_document_chunks_{signature}",
+                    embedding_function=embeddings,
+                    persist_directory=str(self.persist_directory),
+                )
             self._embedding_signature = signature
         return self._vectorstore
 
@@ -110,7 +166,7 @@ class RAGEngine:
 
     def _retrieve(self, question: str, config: dict[str, str | None], k: int = 5) -> list[dict[str, Any]]:
         store = self._store(config)
-        if store._collection.count() == 0:
+        if store.count() == 0 if isinstance(store, JsonVectorStore) else store._collection.count() == 0:
             raise ValueError("Upload and index a document before asking a question.")
         source_filter = None
         filenames = {path.name.lower(): path.name for path in self.upload_directory.iterdir() if path.is_file()}
