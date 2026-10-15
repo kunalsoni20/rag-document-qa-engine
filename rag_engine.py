@@ -1,6 +1,7 @@
 import os
 import re
 import shutil
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,29 @@ from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pypdf import PdfReader
+
+
+class LocalHashEmbeddings(Embeddings):
+    """Small dependency-free embeddings for constrained deployments."""
+
+    dimension = 384
+
+    def _embed(self, text: str) -> list[float]:
+        values = [0.0] * self.dimension
+        tokens = re.findall(r"[a-z0-9]+", text.lower())
+        for token in tokens:
+            digest = hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest()
+            index = int.from_bytes(digest[:4], "big") % self.dimension
+            sign = 1.0 if digest[4] % 2 else -1.0
+            values[index] += sign
+        norm = sum(value * value for value in values) ** 0.5
+        return [value / norm for value in values] if norm else values
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return [self._embed(text) for text in texts]
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._embed(text)
 
 
 class RAGEngine:
@@ -26,7 +50,8 @@ class RAGEngine:
 
     def _embeddings(self, config: dict[str, str | None]) -> Embeddings:
         openai_key = config.get("openai_api_key")
-        signature = "openai" if openai_key else "huggingface"
+        provider = os.getenv("RAG_EMBEDDING_PROVIDER", "huggingface").lower()
+        signature = "openai" if openai_key else provider
         if self._embedding_signature == signature and self._vectorstore is not None:
             return self._vectorstore._embedding_function
 
@@ -34,6 +59,8 @@ class RAGEngine:
             from langchain_openai import OpenAIEmbeddings
 
             embeddings = OpenAIEmbeddings(model="text-embedding-3-small", api_key=openai_key)
+        elif provider == "local":
+            embeddings = LocalHashEmbeddings()
         else:
             from langchain_huggingface import HuggingFaceEmbeddings
 
@@ -46,7 +73,8 @@ class RAGEngine:
 
     def _store(self, config: dict[str, str | None]) -> Chroma:
         embeddings = self._embeddings(config)
-        signature = "openai" if config.get("openai_api_key") else "huggingface"
+        provider = os.getenv("RAG_EMBEDDING_PROVIDER", "huggingface").lower()
+        signature = "openai" if config.get("openai_api_key") else provider
         if self._vectorstore is None or self._embedding_signature != signature:
             self.persist_directory.mkdir(parents=True, exist_ok=True)
             self._vectorstore = Chroma(
