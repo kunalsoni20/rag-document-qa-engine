@@ -1,0 +1,33 @@
+Flask==3.1.0
+python-dotenv==1.0.1
+langchain==0.3.14
+langchain-core==0.3.29
+langchain-text-splitters==0.3.5
+langchain-openai==0.3.0
+langchain-huggingface==0.1.2
+sentence-transformers==3.3.1
+pypdf==5.1.0
+requests==2.32.3
+# ChromaDB runtime dependencies. chromadb itself is installed separately in
+# install_windows.ps1 so pip does not try to compile chroma-hnswlib 0.7.6.
+build>=1.0.3
+fastapi>=0.95.2
+uvicorn[standard]>=0.18.3
+posthog>=2.4.0
+onnxruntime>=1.14.1
+opentelemetry-api>=1.2.0
+opentelemetry-exporter-otlp-proto-grpc>=1.2.0
+opentelemetry-instrumentation-fastapi>=0.41b0
+opentelemetry-sdk>=1.2.0
+tokenizers>=0.13.2
+pypika>=0.48.9
+overrides>=7.3.1
+importlib-resources
+grpcio>=1.58.0
+bcrypt>=4.0.1
+typer>=0.9.0
+kubernetes>=28.1.0
+mmh3>=4.0.1
+orjson>=3.9.12
+httpx>=0.27.0
+rich>=10.11.0

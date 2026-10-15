@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DocuMind | Local RAG Search</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: "class", theme: { extend: { colors: { ink: "#09090b", panel: "#111217", accent: "#8b5cf6" } } } };
+  </script>
+  <style>
+    ::-webkit-scrollbar { width: 7px } ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 999px }
+    .prose-lite p { margin-bottom: .8rem } .prose-lite ul { list-style: disc; padding-left: 1.25rem }
+  </style>
+</head>
+<body class="min-h-screen bg-zinc-950 text-zinc-100">
+  <div class="flex min-h-screen flex-col lg:flex-row">
+    <aside class="w-full border-b border-zinc-800 bg-panel p-5 lg:min-h-screen lg:w-80 lg:border-b-0 lg:border-r">
+      <div class="mb-8 flex items-center gap-3"><div class="grid h-10 w-10 place-items-center rounded-xl bg-violet-600 text-xl">✦</div><div><h1 class="font-bold">DocuMind</h1><p class="text-xs text-zinc-500">Private document intelligence</p></div></div>
+      <div class="space-y-6">
+        <section><h2 class="mb-3 text-xs font-semibold uppercase tracking-widest text-zinc-500">Add knowledge</h2>
+          <label id="dropzone" class="block cursor-pointer rounded-xl border border-dashed border-zinc-700 p-5 text-center transition hover:border-violet-500 hover:bg-violet-500/5"><input id="fileInput" type="file" accept=".pdf,.txt" multiple class="hidden"><div class="mb-2 text-2xl">↑</div><p class="text-sm font-medium">Drop PDFs or TXT files here</p><p class="mt-1 text-xs text-zinc-500">or click to browse · multiple files supported</p></label>
+          <button id="uploadBtn" type="button" class="mt-3 hidden w-full rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-semibold hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50">Index selected files</button>
+          <p id="uploadStatus" class="mt-2 text-xs text-zinc-500"></p>
+        </section>
+        <section><h2 class="mb-3 text-xs font-semibold uppercase tracking-widest text-zinc-500">API providers <span class="normal-case tracking-normal text-zinc-600">(optional)</span></h2>
+          <p class="mb-3 text-xs leading-relaxed text-zinc-500">Keys stay in this browser session and are never written to disk. Without a key, local retrieval still works.</p>
+          <div class="space-y-2"><input id="openaiKey" type="password" placeholder="OpenAI API key" class="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs outline-none focus:border-violet-500"><input id="groqKey" type="password" placeholder="Groq API key (free tier)" class="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs outline-none focus:border-violet-500"><input id="geminiKey" type="password" placeholder="Gemini API key (free tier)" class="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs outline-none focus:border-violet-500"></div>
+        </section>
+        <section><div class="mb-3 flex items-center justify-between"><h2 class="text-xs font-semibold uppercase tracking-widest text-zinc-500">Indexed files</h2><button id="clearBtn" class="text-xs text-red-400 hover:text-red-300">Clear all</button></div><div id="documents" class="space-y-2 text-sm text-zinc-400"><p>Nothing indexed yet.</p></div></section>
+      </div>
+    </aside>
+    <main class="flex min-h-screen flex-1 flex-col">
+      <header class="border-b border-zinc-800 px-6 py-5 lg:px-12"><div class="mx-auto flex max-w-4xl items-center justify-between"><div><p class="text-xs font-semibold uppercase tracking-widest text-violet-400">Local RAG workspace</p><h2 class="mt-1 text-xl font-bold">Ask your documents anything</h2></div><span class="rounded-full border border-emerald-900 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-400">● Private & local</span></div></header>
+      <div id="chat" class="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 overflow-y-auto px-6 py-8 lg:px-12"><div id="welcome" class="m-auto max-w-xl text-center"><div class="mx-auto mb-5 grid h-16 w-16 place-items-center rounded-2xl bg-violet-600/15 text-3xl text-violet-400">✦</div><h3 class="text-2xl font-bold">Your documents, understood.</h3><p class="mt-3 text-sm leading-6 text-zinc-500">Upload a document in the sidebar, then ask a question. Answers are grounded in retrieved passages and include page-level citations.</p></div></div>
+      <form id="askForm" class="mx-auto w-full max-w-4xl px-6 pb-6 lg:px-12"><div class="flex items-end gap-3 rounded-2xl border border-zinc-700 bg-panel p-2 shadow-2xl shadow-black/20 focus-within:border-violet-500"><textarea id="question" rows="1" placeholder="Ask a question about your documents..." class="max-h-32 flex-1 resize-none bg-transparent px-3 py-2.5 text-sm outline-none placeholder:text-zinc-600"></textarea><button id="askBtn" class="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-50">Ask ↗</button></div><p class="mt-2 text-center text-[11px] text-zinc-600">Grounded answers only · Your API keys are session-only</p></form>
+    </main>
+  </div>
+<script>
+const $ = id => document.getElementById(id), chat = $("chat"), history = [];
+const headers = () => ({ "X-OpenAI-Key": $("openaiKey").value.trim(), "X-Groq-Key": $("groqKey").value.trim(), "X-Gemini-Key": $("geminiKey").value.trim() });
+function renderDocs(docs) { $("documents").innerHTML = docs.length ? docs.map(d => `<div class="flex items-center gap-2 rounded-lg bg-zinc-900 px-3 py-2"><span class="text-red-400">▧</span><span class="truncate text-xs">${escapeHtml(d.name)}</span><button class="ml-auto text-xs text-zinc-600 hover:text-red-400" title="Clear this document" data-delete-document="${escapeHtml(d.name)}">×</button></div>`).join("") : "<p>Nothing indexed yet.</p>"; $("documents").querySelectorAll("[data-delete-document]").forEach(button => button.onclick = () => deleteDocument(button.dataset.deleteDocument)); }
+async function deleteDocument(name) { if (!confirm(`Clear ${name} and its indexed chunks?`)) return; const response = await fetch(`/documents/${encodeURIComponent(name)}`, {method:"DELETE"}); const data = await response.json(); if (!response.ok) { alert(data.error || "Unable to clear document."); return; } renderDocs(data.documents || []); }
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;" }[c])); }
+function citationMarkup(citations) { return citations.length ? `<details class="mt-4 rounded-xl border border-zinc-800 bg-zinc-900/60 p-3"><summary class="cursor-pointer text-xs font-semibold text-zinc-400">Source citations (${citations.length})</summary><div class="mt-3 space-y-3">${citations.map(c => `<div class="border-l-2 border-violet-500/50 pl-3"><div class="flex justify-between text-xs"><span class="font-medium text-zinc-300">${escapeHtml(c.source)} · page ${c.page}</span><span class="text-violet-400">${(c.similarity * 100).toFixed(1)}% relevance</span></div><p class="mt-1 text-xs leading-5 text-zinc-500">${escapeHtml(c.text)}</p></div>`).join("")}</div></details>` : ""; }
+function addMessage(role, content, citations=[]) { const el = document.createElement("div"); el.className = role === "user" ? "ml-auto max-w-2xl rounded-2xl rounded-br-md bg-violet-600 px-4 py-3 text-sm" : "max-w-3xl"; if (role === "assistant") el.innerHTML = `<div class="mb-2 flex items-center gap-2 text-xs font-semibold text-violet-400"><span>✦</span> DocuMind</div><div class="prose-lite text-sm leading-6 text-zinc-200">${escapeHtml(content).replace(/\n/g, "<br>")}</div>${citationMarkup(citations)}`; else el.textContent = content; chat.appendChild(el); chat.scrollTop = chat.scrollHeight; return el; }
+async function typeAssistant(content, citations=[], provider="", providerError="") { const el = document.createElement("div"); el.className = "max-w-3xl"; el.innerHTML = `<div class="mb-2 flex items-center gap-2 text-xs font-semibold text-violet-400"><span>✦</span> DocuMind <span class="font-normal text-zinc-600">· ${escapeHtml(provider)}</span></div><div class="prose-lite text-sm leading-6 text-zinc-200"></div>`; chat.appendChild(el); const body = el.querySelector(".prose-lite"); for (let i = 0; i < content.length; i++) { body.innerHTML = escapeHtml(content.slice(0, i + 1)).replace(/\n/g, "<br>"); chat.scrollTop = chat.scrollHeight; await new Promise(resolve => setTimeout(resolve, 8)); } if (providerError) body.insertAdjacentHTML("afterend", `<p class="mt-2 rounded-lg border border-amber-900/60 bg-amber-500/5 px-3 py-2 text-xs text-amber-300">Hosted provider unavailable; local retrieval was used. ${escapeHtml(providerError)}</p>`); body.insertAdjacentHTML("afterend", citationMarkup(citations)); return el; }
+async function loadDocs() { const r = await fetch("/documents"); const d = await r.json(); renderDocs(d.documents || []); }
+function setSelectedFiles(files) { const transferable = new DataTransfer(); [...files].forEach(file => transferable.items.add(file)); $("fileInput").files = transferable.files; $("uploadBtn").classList.toggle("hidden", !transferable.files.length); }
+$("fileInput").onchange = () => setSelectedFiles($("fileInput").files);
+$("dropzone").ondragover = event => { event.preventDefault(); $("dropzone").classList.add("border-violet-500", "bg-violet-500/5"); };
+$("dropzone").ondragleave = () => $("dropzone").classList.remove("border-violet-500", "bg-violet-500/5");
+$("dropzone").ondrop = event => { event.preventDefault(); $("dropzone").classList.remove("border-violet-500", "bg-violet-500/5"); setSelectedFiles(event.dataTransfer.files); };
+$("uploadBtn").onclick = async () => { const data = new FormData(); [...$("fileInput").files].forEach(f => data.append("files", f)); $("uploadBtn").disabled = true; $("uploadStatus").textContent = "Indexing..."; try { const r = await fetch("/upload", {method:"POST", headers:headers(), body:data}); const d = await r.json(); renderDocs(d.documents || []); $("uploadStatus").textContent = r.ok ? "Indexing complete" : (d.error || "Indexing failed"); } catch (error) { $("uploadStatus").textContent = `Upload failed: ${error.message}`; } finally { $("uploadBtn").disabled = false; $("fileInput").value = ""; $("uploadBtn").classList.add("hidden"); } };
+$("clearBtn").onclick = async () => { if (!confirm("Remove all indexed documents?")) return; try { const response = await fetch("/clear", {method:"POST"}); const data = await response.json(); if (!response.ok) throw new Error(data.error || "Unable to clear documents."); renderDocs([]); chat.innerHTML = ""; $("uploadStatus").textContent = "All documents cleared."; } catch (error) { $("uploadStatus").textContent = `Clear failed: ${error.message}`; } };
+$("askForm").onsubmit = async e => { e.preventDefault(); const q = $("question").value.trim(); if (!q) return; $("welcome")?.remove(); addMessage("user", q); history.push({role:"user", content:q}); $("question").value = ""; $("askBtn").disabled = true; const loading = addMessage("assistant", "Searching your documents..."); try { const r = await fetch("/ask", {method:"POST", headers:{"Content-Type":"application/json", ...headers()}, body:JSON.stringify({question:q, history})}); const d = await r.json(); loading.remove(); if (!r.ok) throw new Error(d.error); await typeAssistant(d.answer, d.citations, d.provider, d.provider_error); history.push({role:"assistant", content:d.answer}); } catch(err) { loading.remove(); addMessage("assistant", `Error: ${err.message}`); } finally { $("askBtn").disabled = false; } };
+$("question").onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("askForm").requestSubmit(); } }; loadDocs();
+</script>
+</body>
+</html>

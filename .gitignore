@@ -1,0 +1,10 @@
+venv/
+venv*/
+.venv/
+.env
+chroma_db/
+uploads/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.vscode/
