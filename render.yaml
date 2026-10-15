@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: rag-document-qa-engine
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 180 app:app
+    healthCheckPath: /
+    envVars:
+      - key: FLASK_DEBUG
+        value: "false"
+      - key: HOST
+        value: "0.0.0.0"
+      - key: MAX_UPLOAD_MB
+        value: "25"
+      - key: GEMINI_MODEL
+        value: "gemini-3.8-flash"
+      - key: GROQ_MODEL
+        value: "openai/gpt-oss-120b"
+      - key: FLASK_SECRET_KEY
+        generateValue: true
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false

@@ -64,6 +64,19 @@ For Linux/macOS, use `pip install -r requirements.txt` directly.
 
 The first keyless run downloads the SentenceTransformers model (roughly 90 MB) and stores it in the normal HuggingFace cache. For hosted answers, add a key in `.env` or paste one into the sidebar. A Groq or Gemini free-tier key is enough to get conversational answers without OpenAI credits.
 
+## Deploy on Render
+
+The repository includes [`render.yaml`](./render.yaml) for a one-click Render deployment.
+
+1. Create a new Web Service at <https://render.com> and select this GitHub repository.
+2. Render will read the build and start commands from `render.yaml`.
+3. Add a new, unexposed provider key in Render's Environment settings (`GROQ_API_KEY` or `GEMINI_API_KEY`).
+4. Deploy and open the generated `onrender.com` URL.
+
+The free plan has ephemeral storage: uploaded documents and `chroma_db/` can disappear
+when the service restarts or redeploys. Add a persistent disk or external object/vector
+storage before using this for production data. Never commit `.env` or provider keys.
+
 ## REST API
 
 - `POST /upload`: multipart form field `files`; accepts `.pdf` and `.txt`.
